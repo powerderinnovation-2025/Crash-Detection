@@ -1,0 +1,109 @@
+/*
+  Smart Helmet – Latched Crash Alert + Soft Reset Button
+  Board: Arduino Nano 33 BLE Sense Rev2 (BMI270_BMM150 IMU)
+  LED:   D3 -> 220Ω resistor -> GND
+  Button: one side to D4, opposite side to GND (use INPUT_PULLUP)
+*/
+
+#include "Arduino_BMI270_BMM150.h"
+
+// --------- CONFIG ----------
+#define CRASH_THRESHOLD_G     3.5f     // Trigger threshold in g's (tune 3.0–5.0)
+#define ALERT_PIN             3        // D3 -> LED (through 220 Ω) to GND
+#define RESET_PIN             4        // D4 -> button -> GND (INPUT_PULLUP)
+#define SAMPLE_DELAY_MS       40       // Loop pacing / serial rate
+#define DEBOUNCE_MS           40       // Button debounce window
+#define POST_RESET_IGNORE_MS  600      // Ignore impacts briefly after reset
+// ---------------------------
+
+float ax, ay, az;
+bool crashLatched = false;
+bool announced    = false;
+unsigned long lastButtonChange = 0;
+bool lastButtonState = HIGH;           // INPUT_PULLUP -> HIGH when not pressed
+unsigned long lastResetMillis  = 0;
+
+void setup() {
+  Serial.begin(9600);
+  while (!Serial);
+
+  if (!IMU.begin()) {
+    Serial.println("Failed to initialize IMU!");
+    while (1);
+  }
+
+  pinMode(ALERT_PIN, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(RESET_PIN, INPUT_PULLUP);    // Button to GND
+
+  digitalWrite(ALERT_PIN, LOW);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  Serial.print("Accel sample rate = ");
+  Serial.print(IMU.accelerationSampleRate());
+  Serial.println(" Hz");
+  Serial.println("Latched crash detection + soft reset ready.");
+  Serial.println("Press button on D4 to clear a latched alert.");
+}
+
+void loop() {
+  // ---- Read & debounce button (active LOW) ----
+  bool rawButton = (digitalRead(RESET_PIN) == LOW);
+  unsigned long now = millis();
+
+  if (rawButton != (lastButtonState == LOW)) {
+    // state changed -> start debounce timer
+    lastButtonChange = now;
+    lastButtonState = rawButton ? LOW : HIGH;
+  }
+
+  // If debounced press
+  if (rawButton && (now - lastButtonChange) > DEBOUNCE_MS) {
+    // Clear latch & LEDs
+    crashLatched = false;
+    announced = false;
+    digitalWrite(ALERT_PIN, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
+    lastResetMillis = now;
+    Serial.println("🔄 Soft reset: crash alert cleared.");
+    // small guard delay to avoid repeated prints while held
+    delay(150);
+  }
+
+  // ---- Read IMU and detect crash unless in ignore window ----
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(ax, ay, az);       // values in g's on this board
+    float totalG = sqrtf(ax*ax + ay*ay + az*az);
+
+    // Optional: stream for tuning when not latched
+    if (!crashLatched) {
+      Serial.print("TotalG: ");
+      Serial.println(totalG);
+    }
+
+    bool ignoreWindow = (now - lastResetMillis) < POST_RESET_IGNORE_MS;
+
+    if (!crashLatched && !ignoreWindow && totalG > CRASH_THRESHOLD_G) {
+      crashLatched = true;
+    }
+
+    // ---- Drive outputs ----
+    if (crashLatched) {
+      digitalWrite(ALERT_PIN, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
+
+      if (!announced) {
+        Serial.print("TotalG: ");
+        Serial.println(totalG);
+        Serial.println("CRASH DETECTED — ALERT LATCHED. Press button to reset.");
+        announced = true;
+      }
+    } else {
+      // keep off when not latched
+      digitalWrite(ALERT_PIN, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
+    }
+  }
+
+  delay(SAMPLE_DELAY_MS);
+}
