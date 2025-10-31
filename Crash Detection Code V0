@@ -1,0 +1,48 @@
+#include "Arduino_BMI270_BMM150.h"
+
+#define CRASH_THRESHOLD 3.0f   // Threshold for crash detection in G's (tweak as needed)
+#define ALERT_PIN 3            // D3 pin connected to LED (through 220Ω resistor)
+
+float x, y, z;                 // Acceleration data
+
+void setup() {
+  Serial.begin(9600);
+  while (!Serial);
+
+  // Initialize IMU
+  if (!IMU.begin()) {
+    Serial.println("Failed to initialize IMU!");
+    while (1);
+  }
+
+  pinMode(ALERT_PIN, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);  // Optional: onboard LED also blinks during a crash
+
+  Serial.print("Accelerometer sample rate = ");
+  Serial.print(IMU.accelerationSampleRate());
+  Serial.println(" Hz");
+  Serial.println("Smart Helmet crash detection ready...");
+}
+
+void loop() {
+  if (IMU.accelerationAvailable()) {
+    IMU.readAcceleration(x, y, z);
+
+    // Calculate total acceleration magnitude in G's
+    float totalG = sqrt(x * x + y * y + z * z);
+    Serial.print("Total acceleration: ");
+    Serial.println(totalG);
+
+    // Detect crash
+    if (totalG > CRASH_THRESHOLD) {
+      Serial.println("CRASH DETECTED! CRASH DETECTED!");
+      digitalWrite(ALERT_PIN, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(1000);  // LED stays lit for 1 second
+      digitalWrite(ALERT_PIN, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
+    }
+
+    delay(50);  // small delay to avoid overwhelming serial output
+  }
+}
