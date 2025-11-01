@@ -3,6 +3,9 @@
   Board: Arduino Nano 33 BLE Sense Rev2 (BMI270_BMM150 IMU)
   LED:   D3 -> 220Ω resistor -> GND
   Button: one side to D4, opposite side to GND (use INPUT_PULLUP)
+
+NOTES: Currently, the button is not working correctly. The light either remains on until the power button is pushed or never turns on when the button is connected to ground. Unsure why.
+
 */
 
 #include "Arduino_BMI270_BMM150.h"
